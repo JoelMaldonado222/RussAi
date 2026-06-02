@@ -66,7 +66,7 @@ price_pour    — Pour price
 
 - [x] Spring Boot scaffold + PostgreSQL connection
 - [x] Flyway migrations + full spirit inventory seed (225 spirits)
-- [ ] `Spirit.java` JPA entity + REST API (`GET /api/spirits`)
+- [x] `Spirit.java` JPA entity + REST API (`GET /api/spirits`)
 - [ ] pgvector extension + embedding pipeline
 - [ ] Similarity search endpoint (`POST /api/recommend`)
 - [ ] Amazon Bedrock LLM integration (Russ-Script generation)
