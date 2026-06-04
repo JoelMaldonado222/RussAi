@@ -1,53 +1,69 @@
 package com.russai.russai.controller;
 
 import com.russai.russai.model.Spirit;
-import com.russai.russai.repository.SpiritRepository;
-import org.springframework.web.bind.annotation.*;
-import java.util.List;
+import com.russai.russai.service.SpiritService;
 import org.springframework.http.ResponseEntity;
-import java.util.Optional;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
-// This class handles HTTP requests and returns JSON automatically
 @RestController
-// All endpoints in this class live under this URL (/api/spirits)
 @RequestMapping("/api/spirits")
 public class SpiritController {
 
-    // keep repository here so can talk to the database
-    private final SpiritRepository spiritRepository;
+    private final SpiritService spiritService;
 
-    // This is the clean way to "wire in"  repository without needing @Autowired
-    public SpiritController(SpiritRepository spiritRepository) {
-        this.spiritRepository = spiritRepository;
+    public SpiritController(SpiritService spiritService) {
+        this.spiritService = spiritService;
     }
 
-    // This maps a "GET" request to the method below
+    // GET /api/spirits — returns all spirits
     @GetMapping
     public List<Spirit> getAllSpirits() {
-        // asking the repository to go grab every spirit in the table
-        return spiritRepository.findAll();
+        return spiritService.getAllSpirits();
     }
 
-    // This maps GET /api/spirits/{id} — the {id} comes from the URL
-@GetMapping("/{id}")
-public ResponseEntity<Spirit> getSpiritById(@PathVariable UUID id) {
-    // look for the spirit in the database — it might or might not exist
-    Optional<Spirit> spirit = spiritRepository.findById(id);
+    // GET /api/spirits/{id} — returns one spirit or 404
+    @GetMapping("/{id}")
+    public ResponseEntity<Spirit> getSpiritById(@PathVariable UUID id) {
+        return spiritService.getSpiritById(id)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
 
-    // if it exists return it with 200 OK, if not return 404 Not Found
-    if (spirit.isPresent()) {
-        return ResponseEntity.ok(spirit.get());
-    } else {
+    // POST /api/spirits — creates a new spirit
+    @PostMapping
+    public ResponseEntity<Spirit> createSpirit(@RequestBody Spirit spirit) {
+        Spirit created = spiritService.createSpirit(spirit);
+        return ResponseEntity.status(201).body(created);
+    }
+
+    // PUT /api/spirits/{id} — replaces entire spirit record
+    @PutMapping("/{id}")
+    public ResponseEntity<Spirit> updateSpirit(@PathVariable UUID id,
+                                               @RequestBody Spirit updatedSpirit) {
+        return spiritService.updateSpirit(id, updatedSpirit)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    // PATCH /api/spirits/{id} — updates only the fields sent
+    @PatchMapping("/{id}")
+    public ResponseEntity<Spirit> patchSpirit(@PathVariable UUID id,
+                                              @RequestBody Map<String, Object> fields) {
+        return spiritService.patchSpirit(id, fields)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    // DELETE /api/spirits/{id} — deletes a spirit
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteSpirit(@PathVariable UUID id) {
+        if (spiritService.deleteSpirit(id)) {
+            return ResponseEntity.noContent().build();
+        }
         return ResponseEntity.notFound().build();
     }
-}
-
-// This maps POST /api/spirits — receives a new spirit in the request body and saves it
-@PostMapping
-public ResponseEntity<Spirit> createSpirit(@RequestBody Spirit spirit) {
-    // save the spirit to the database and return it with 201 Created
-    Spirit saved = spiritRepository.save(spirit);
-    return ResponseEntity.status(201).body(saved);
-}
 }
