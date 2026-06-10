@@ -78,6 +78,32 @@ public class RecommendationService {
                 score += (int) matchingTags;
             }
 
+            // proof tier matching — keep upsells in a similar intensity band
+            // so a 90 proof sipper isn't pushed to a 130 proof barrel monster
+            if (candidate.getProof() != null && ordered.getProof() != null) {
+                String orderedTier = proofTier(ordered.getProof().doubleValue());
+                String candidateTier = proofTier(candidate.getProof().doubleValue());
+                if (orderedTier.equals(candidateTier)) {
+                    score += 2;
+                }
+            }
+
+            // price ladder — reward a sensible upsell step (1.2x to 2x the price)
+            // too cheap = no upsell value, too expensive = not a realistic upgrade
+            if (candidate.getPricePour() != null && ordered.getPricePour() != null) {
+                double orderedPrice = ordered.getPricePour().doubleValue();
+                double candidatePrice = candidate.getPricePour().doubleValue();
+                if (orderedPrice > 0) {
+                    double ratio = candidatePrice / orderedPrice;
+                    if (ratio >= 1.2 && ratio <= 2.0) {
+                        score += 3; // ideal upsell window
+                    } else if (ratio > 1.0 && ratio < 1.2) {
+                        score += 1; // slight step up, still works
+                    }
+                    // ratio <= 1.0 (cheaper) or > 2.0 (too pricey) gets no bonus
+                }
+            }
+
             // only include spirits with at least some similarity
             if (score > 0) {
                 scores.put(candidate, score);
@@ -108,22 +134,53 @@ public class RecommendationService {
         return response;
     }
 
+    // buckets a proof number into an intensity tier
+    private String proofTier(double proof) {
+        if (proof < 95) return "easy";
+        if (proof < 110) return "mid";
+        if (proof < 120) return "high";
+        return "barrel";
+    }
+
     // builds a human readable reason string for the bartender
     private String buildReason(Spirit ordered, Spirit candidate, int score) {
         List<String> reasons = new ArrayList<>();
 
+        // distillery connection
         if (candidate.getDistillery() != null &&
                 candidate.getDistillery().equalsIgnoreCase(ordered.getDistillery())) {
             reasons.add("same distillery as " + ordered.getName());
         }
 
+        // grain recipe connection
         if (candidate.getMashBill() != null &&
                 candidate.getMashBill().equalsIgnoreCase(ordered.getMashBill())) {
             reasons.add("same grain recipe");
         }
 
+        // proof relationship — describe the intensity step
+        if (candidate.getProof() != null && ordered.getProof() != null) {
+            double orderedProof = ordered.getProof().doubleValue();
+            double candidateProof = candidate.getProof().doubleValue();
+            if (candidateProof > orderedProof + 5) {
+                reasons.add("bigger, bolder pour at " + candidateProof + " proof");
+            } else if (Math.abs(candidateProof - orderedProof) <= 5) {
+                reasons.add("similar easy-drinking strength");
+            }
+        }
+
+        // age adds complexity
         if (candidate.getAgeStatement() != null) {
-            reasons.add("aged " + candidate.getAgeStatement() + " years");
+            reasons.add("aged " + candidate.getAgeStatement() + " years for more depth");
+        }
+
+        // price step — frame the upsell
+        if (candidate.getPricePour() != null && ordered.getPricePour() != null) {
+            double diff = candidate.getPricePour().doubleValue()
+                    - ordered.getPricePour().doubleValue();
+            if (diff > 0) {
+                reasons.add(String.format("only $%.0f more", diff));
+            }
         }
 
         if (reasons.isEmpty()) {
