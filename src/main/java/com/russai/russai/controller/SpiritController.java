@@ -66,4 +66,12 @@ public class SpiritController {
         }
         return ResponseEntity.notFound().build();
     }
+
+    // ⚠️ TEMPORARY — one-time embedding backfill trigger. Generates and stores
+    // embeddings for all spirits. Safe to re-run (overwrites). DELETE THIS
+    // before final build, same as EmbeddingTestController.
+    @PostMapping("/backfill-embeddings")
+    public ResponseEntity<Map<String, Object>> backfillEmbeddings() {
+        return ResponseEntity.ok(spiritService.backfillEmbeddings());
+    }
 }
