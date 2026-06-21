@@ -93,17 +93,31 @@ public class SpiritService {
         return false;
     }
 
-    // Builds the text that represents a spirit's identity and flavor for
-    // embedding. Combines name, category, distillery, mash bill, and flavor
-    // tags into one string. Proof and price are intentionally excluded — those
-    // are handled as precise numeric rules in the recommendation scoring
-    // engine, while the embedding captures flavor and character similarity.
+    // Builds the text that represents a spirit's flavor character for
+    // embedding. Combines name, category, and flavor tags only — the parts
+    // that actually describe what something tastes and smells like.
+    //
+    // Distillery and mash bill are deliberately left OUT here, even though
+    // they used to be included. Both are already scored as explicit rules
+    // in RecommendationService (distillery worth 4 points, mash bill worth
+    // 3), so including them in the embedded text was double-counting the
+    // same signal twice: once baked into the vector, once again as a flat
+    // bonus. In this dataset it was worse than that, since Buffalo Trace's
+    // "Mash Bill #1/#2" phrasing is effectively its own internal naming
+    // convention, so it was quietly fingerprinting distillery lineage a
+    // second time even without the distillery field present. The result
+    // was every recommendation staying inside one distillery family,
+    // regardless of how close a cross-distillery flavor match actually was.
+    //
+    // Category stays, since unlike distillery (pure lineage, no taste
+    // signal of its own) a Tequila and a Bourbon genuinely taste like
+    // different things — that's a real flavor-relevant fact, not branding.
+    // Proof and price remain excluded as before, handled as precise
+    // numeric rules in the scoring engine rather than fuzzy flavor text.
     private String buildEmbeddingText(Spirit spirit) {
         StringBuilder sb = new StringBuilder();
         if (spirit.getName() != null)       sb.append(spirit.getName()).append(". ");
         if (spirit.getCategory() != null)   sb.append(spirit.getCategory()).append(". ");
-        if (spirit.getDistillery() != null) sb.append(spirit.getDistillery()).append(". ");
-        if (spirit.getMashBill() != null)   sb.append(spirit.getMashBill()).append(". ");
         if (spirit.getFlavorTags() != null) sb.append(spirit.getFlavorTags());
         return sb.toString().trim();
     }
@@ -119,6 +133,28 @@ public class SpiritService {
         }
         sb.append("]");
         return sb.toString();
+    }
+
+    // TEMPORARY diagnostic method — finds the spirits most similar in flavor
+    // to a given spirit, using its stored pgvector embedding. Looks the
+    // spirit up by name (same lookup pattern RecommendationService already
+    // uses), reads back its embedding, then searches for nearest neighbors
+    // in vector space. Throws a clear, specific exception on bad input
+    // rather than a generic one, since this is meant to be tested by hand.
+    public List<Spirit> getSimilarSpirits(String spiritName, int limit) {
+        Spirit target = spiritRepository.findAll().stream()
+                .filter(s -> s.getName().equalsIgnoreCase(spiritName))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "No spirit found with name: " + spiritName));
+
+        String queryVector = spiritRepository.getEmbeddingAsString(target.getSpiritId());
+        if (queryVector == null) {
+            throw new IllegalStateException(
+                    "Spirit '" + spiritName + "' has no embedding yet. Run the backfill first.");
+        }
+
+        return spiritRepository.findSimilarByEmbedding(target.getSpiritId(), queryVector, limit);
     }
 
     // One-time (re-runnable) backfill: generates and stores an embedding for

@@ -74,4 +74,26 @@ public class SpiritController {
     public ResponseEntity<Map<String, Object>> backfillEmbeddings() {
         return ResponseEntity.ok(spiritService.backfillEmbeddings());
     }
+
+    // ⚠️ TEMPORARY — diagnostic endpoint to verify the cosine similarity
+    // search works end to end before it's wired into RecommendationService.
+    // GET /api/spirits/similar-test?name=E.H. Taylor Barrel Proof&limit=5
+    // Errors are caught here explicitly (instead of letting the generic
+    // GlobalExceptionHandler swallow them into "Something went wrong") so
+    // a typo'd name or a missing embedding shows a real, readable reason.
+    // DELETE THIS before final build, same as backfill-embeddings.
+    @GetMapping("/similar-test")
+    public ResponseEntity<Map<String, Object>> getSimilarSpiritsTest(
+            @RequestParam String name,
+            @RequestParam(defaultValue = "5") int limit) {
+        try {
+            List<Spirit> matches = spiritService.getSimilarSpirits(name, limit);
+            return ResponseEntity.ok(Map.of(
+                    "orderedSpirit", name,
+                    "matches", matches
+            ));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
 }

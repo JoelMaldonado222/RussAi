@@ -19,5 +19,19 @@ public class RecommendationResponse {
         private double pricePour;
         private double proof;
         private String reason;
+
+        // True when this spirit is cheaper than what was ordered. The engine
+        // still includes it if the flavor is a genuinely close match, but it
+        // should never be presented as a real upsell — the UI can use this
+        // flag to show it as a side comparison/talking point instead of a
+        // ranked recommendation, without having to parse the reason text.
+        private boolean comparisonOnly;
+
+        // True when this spirit costs more than three times what was
+        // ordered. Still a genuinely close flavor match, but too big a
+        // price leap to present as a realistic next pour — the UI can use
+        // this to show it as a "worth mentioning" aside (a trophy bottle
+        // the guest might be curious about) rather than a normal upsell.
+        private boolean aspirational;
     }
 }

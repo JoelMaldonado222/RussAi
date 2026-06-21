@@ -19,6 +19,62 @@ public class RecommendationService {
         this.spiritRepository = spiritRepository;
     }
 
+    // ============================================================
+    // SCORING POINT HIERARCHY — locked in deliberately, not arbitrary.
+    // ------------------------------------------------------------
+    // Ranked from the strongest real reason a guest says yes to the
+    // next pour, down to the weakest supporting nudge:
+    //   1. Flavor match (the embedding)  — up to 6 points, tapered by rank
+    //   2. Same distillery                — 2 points
+    //   3. Same mash bill (grain family)  — 2 points
+    //   4. Proof tier compatibility       — 2 points (a guardrail, not a pitch)
+    //   5. Exact flavor tag overlap       — 1 point per matching tag
+    //   6. Has an age statement           — 1 point
+    //   7. Same category                  — 1 point
+    //
+    // Distillery and mash bill were originally 4 and 3. Trimmed to 2 and 2
+    // after real testing showed a same-distillery sibling started with a
+    // built-in 7-point floor before flavor was even judged, which made it
+    // nearly impossible for a genuine cross-distillery flavor twin to win,
+    // even when it was a closer vector match. At 2 and 2, lineage is still
+    // a real, deserved edge, just not an automatic one.
+    //
+    // Price is NOT in this point stack — it's two gates, not a score:
+    //   - Cheaper than the order  -> comparisonOnly = true  (a downsell,
+    //     shown only as a talking point, never a real upsell)
+    //   - More than ASPIRATIONAL_PRICE_RATIO_CEILING times pricier ->
+    //     aspirational = true (too big a jump to be a normal next-pour
+    //     suggestion; shown only as a "worth mentioning" aside, not a
+    //     practical upsell)
+    // Anything in between those two gates is a genuine, normal upsell.
+    // ============================================================
+    private static final int MAX_VECTOR_BONUS = 6;
+    private static final int DISTILLERY_MATCH_POINTS = 2;
+    private static final int MASH_BILL_MATCH_POINTS = 2;
+    private static final int PROOF_TIER_MATCH_POINTS = 2;
+    private static final int AGE_STATEMENT_POINTS = 1;
+    private static final int SAME_CATEGORY_POINTS = 1;
+
+    // Anything priced more than this many times the ordered spirit is too
+    // big a leap to present as a normal upsell (e.g. $1,000 against an $18
+    // order). It still gets flagged and demoted rather than thrown away,
+    // since a real bartender would still mention a trophy bottle sometimes,
+    // just not in the same breath as a realistic next pour.
+    private static final double ASPIRATIONAL_PRICE_RATIO_CEILING = 3.0;
+
+    // How many of the nearest flavor-vector neighbors to pull in and score.
+    // Generous on purpose — most of these won't end up scoring high enough
+    // to matter, but we don't want to miss a genuine cross-category match
+    // (like a Rye sibling) just because it sits a little further down the
+    // raw nearest-neighbor list.
+    private static final int VECTOR_NEIGHBORS_TO_CONSIDER = 15;
+
+    // How many recommendations to actually return. Was 3, bumped to 5 —
+    // more room for a real upsell, a cross-distillery surprise, and an
+    // occasional comparison or aspirational mention to all coexist without
+    // crowding each other out.
+    private static final int MAX_RECOMMENDATIONS = 5;
+
     public RecommendationResponse recommend(RecommendationRequest request) {
 
         // Step 1 — find the spirit the bartender ordered
@@ -37,34 +93,73 @@ public class RecommendationService {
             return response;
         }
 
-        // Step 2 — score every other spirit for similarity
-        Map<Spirit, Integer> scores = new HashMap<>();
+        // Step 1.5 — pull the flavor-vector neighbors for the ordered spirit,
+        // if it has an embedding yet. This is the strongest signal in the
+        // whole hierarchy above: it reads the spirit's whole flavor profile
+        // instead of matching on exact tag text, and it's what lets a
+        // genuinely close cross-category match (a Rye sibling of a Bourbon)
+        // compete at all. Rank matters more than raw distance here, so each
+        // neighbor gets a bonus based on how close it placed: nearest gets
+        // the full MAX_VECTOR_BONUS, it tapers off, and anything outside the
+        // top results gets nothing.
+        Map<UUID, Integer> vectorBonus = new HashMap<>();
+        String queryVector = spiritRepository.getEmbeddingAsString(ordered.getSpiritId());
+        if (queryVector != null) {
+            List<Spirit> nearestByFlavor = spiritRepository.findSimilarByEmbedding(
+                    ordered.getSpiritId(), queryVector, VECTOR_NEIGHBORS_TO_CONSIDER);
+            for (int i = 0; i < nearestByFlavor.size(); i++) {
+                int bonus = Math.max(MAX_VECTOR_BONUS - i, 0);
+                if (bonus > 0) {
+                    vectorBonus.put(nearestByFlavor.get(i).getSpiritId(), bonus);
+                }
+            }
+        }
+        // If the ordered spirit has no embedding yet (backfill hasn't run for
+        // it), vectorBonus just stays empty and scoring falls back to the
+        // remaining rules below.
+
+        // Step 2 — score every other spirit using the hierarchy above
+        List<ScoredCandidate> scored = new ArrayList<>();
 
         for (Spirit candidate : allSpirits) {
 
             // don't recommend the same spirit that was ordered
             if (candidate.getSpiritId().equals(ordered.getSpiritId())) continue;
 
-            // only recommend spirits in the same category
-            if (!candidate.getCategory().equalsIgnoreCase(ordered.getCategory())) continue;
+            // staying in the same category is the weakest positive signal in
+            // the hierarchy, and it is no longer a hard requirement — the
+            // flavor vector is allowed to pull in a genuinely close
+            // cross-category match (e.g. a Rye sibling of a Bourbon), the
+            // same way a real bartender would say "I know this is a Rye,
+            // but it tastes close enough to try."
+            boolean sameCategory = candidate.getCategory() != null
+                    && candidate.getCategory().equalsIgnoreCase(ordered.getCategory());
 
             int score = 0;
 
-            // same distillery = strongest signal — same house style
-            if (candidate.getDistillery() != null && ordered.getDistillery() != null) {
-                if (candidate.getDistillery().equalsIgnoreCase(ordered.getDistillery())) {
-                    score += 3;
-                }
+            if (sameCategory) {
+                score += SAME_CATEGORY_POINTS;
             }
 
-            // same mash bill = same grain DNA
-            if (candidate.getMashBill() != null && ordered.getMashBill() != null) {
-                if (candidate.getMashBill().equalsIgnoreCase(ordered.getMashBill())) {
-                    score += 2;
-                }
+            // #2 in the hierarchy — same distillery = strongest non-flavor
+            // signal, an instant trust pitch ("same hands that made what
+            // you're already drinking")
+            if (candidate.getDistillery() != null && ordered.getDistillery() != null
+                    && candidate.getDistillery().equalsIgnoreCase(ordered.getDistillery())) {
+                score += DISTILLERY_MATCH_POINTS;
             }
 
-            // flavor tag overlap — count how many tags match
+            // #3 — same mash bill = same grain DNA, the technical "why" behind
+            // the flavor (high rye drinks spicier, wheated drinks softer)
+            if (candidate.getMashBill() != null && ordered.getMashBill() != null
+                    && candidate.getMashBill().equalsIgnoreCase(ordered.getMashBill())) {
+                score += MASH_BILL_MATCH_POINTS;
+            }
+
+            // #5 — exact flavor tag overlap. Now a minor supporting signal
+            // underneath the embedding rather than the main event, since a
+            // single mismatched word here (e.g. "vanilla" vs "rich vanilla")
+            // shouldn't be trusted the way Lonnie warned against.
             if (candidate.getFlavorTags() != null && ordered.getFlavorTags() != null) {
                 List<String> orderedTags = Arrays.asList(
                         ordered.getFlavorTags().toLowerCase().split(",\\s*"));
@@ -78,51 +173,81 @@ public class RecommendationService {
                 score += (int) matchingTags;
             }
 
-            // proof tier matching — keep upsells in a similar intensity band
-            // so a 90 proof sipper isn't pushed to a 130 proof barrel monster
+            // #4 — proof tier compatibility. A guardrail, not a sales pitch:
+            // nobody picks a pour because of its proof number, but jumping
+            // someone from a gentle 90 proof to a 140 proof barrel monster
+            // is how you lose the sale, not win it.
             if (candidate.getProof() != null && ordered.getProof() != null) {
                 String orderedTier = proofTier(ordered.getProof().doubleValue());
                 String candidateTier = proofTier(candidate.getProof().doubleValue());
                 if (orderedTier.equals(candidateTier)) {
-                    score += 2;
+                    score += PROOF_TIER_MATCH_POINTS;
                 }
             }
 
-            // price ladder — reward a sensible upsell step (1.2x to 2x the price)
-            // too cheap = no upsell value, too expensive = not a realistic upgrade
+            // #6 — having an age statement is a minor value-add talking point
+            // ("aged twelve years, noticeably smoother"), not a real driver
+            if (candidate.getAgeStatement() != null) {
+                score += AGE_STATEMENT_POINTS;
+            }
+
+            // #1 — the flavor-vector signal, applied last so it's easy to see
+            // it's additive on top of everything above, not a replacement
+            score += vectorBonus.getOrDefault(candidate.getSpiritId(), 0);
+
+            // Price — two gates, never a stacked point. Below the order's
+            // price, this is a downsell, flagged comparisonOnly. More than
+            // ASPIRATIONAL_PRICE_RATIO_CEILING times pricier, this is too
+            // big a leap to be a normal next-pour suggestion, flagged
+            // aspirational instead. Either flag demotes the candidate below
+            // genuine, realistically-priced upsells in sorting — neither
+            // one ever earns or loses score points here.
+            boolean isComparisonOnly = false;
+            boolean isAspirational = false;
             if (candidate.getPricePour() != null && ordered.getPricePour() != null) {
                 double orderedPrice = ordered.getPricePour().doubleValue();
                 double candidatePrice = candidate.getPricePour().doubleValue();
                 if (orderedPrice > 0) {
                     double ratio = candidatePrice / orderedPrice;
-                    if (ratio >= 1.2 && ratio <= 2.0) {
-                        score += 3; // ideal upsell window
-                    } else if (ratio > 1.0 && ratio < 1.2) {
-                        score += 1; // slight step up, still works
+                    if (ratio < 1.0) {
+                        isComparisonOnly = true;
+                    } else if (ratio > ASPIRATIONAL_PRICE_RATIO_CEILING) {
+                        isAspirational = true;
                     }
-                    // ratio <= 1.0 (cheaper) or > 2.0 (too pricey) gets no bonus
+                    // ratio between 1.0 and the ceiling, inclusive, is a
+                    // normal upsell — no flag, no bonus, just eligible
                 }
             }
 
             // only include spirits with at least some similarity
             if (score > 0) {
-                scores.put(candidate, score);
+                scored.add(new ScoredCandidate(candidate, score, sameCategory, isComparisonOnly, isAspirational));
             }
         }
 
-        // Step 3 — sort by score descending, take top 3
-        List<SpiritMatch> recommendations = scores.entrySet().stream()
-                .sorted(Map.Entry.<Spirit, Integer>comparingByValue().reversed())
-                .limit(3)
-                .map(entry -> {
-                    Spirit s = entry.getKey();
+        // Step 3 — rank genuine, realistically-priced upsells first, then
+        // aspirational trophy mentions, then comparison-only downsells
+        // last, and within each of those three groups, best score first.
+        // This means a $1,000 bottle can still get mentioned and a $12
+        // bottle can still get name-dropped for comparison, but neither
+        // one will ever bump a real, normal upsell out of the way.
+        scored.sort(Comparator
+                .comparingInt((ScoredCandidate sc) -> sc.isComparisonOnly() ? 2 : sc.isAspirational() ? 1 : 0)
+                .thenComparing(Comparator.comparingInt(ScoredCandidate::score).reversed()));
+
+        List<SpiritMatch> recommendations = scored.stream()
+                .limit(MAX_RECOMMENDATIONS)
+                .map(sc -> {
+                    Spirit s = sc.spirit();
                     SpiritMatch match = new SpiritMatch();
                     match.setName(s.getName());
                     match.setDistillery(s.getDistillery());
                     match.setFlavorTags(s.getFlavorTags());
                     match.setPricePour(s.getPricePour().doubleValue());
                     match.setProof(s.getProof() != null ? s.getProof().doubleValue() : 0);
-                    match.setReason(buildReason(ordered, s, entry.getValue()));
+                    match.setComparisonOnly(sc.isComparisonOnly());
+                    match.setAspirational(sc.isAspirational());
+                    match.setReason(buildReason(ordered, sc));
                     return match;
                 })
                 .collect(Collectors.toList());
@@ -143,8 +268,16 @@ public class RecommendationService {
     }
 
     // builds a human readable reason string for the bartender
-    private String buildReason(Spirit ordered, Spirit candidate, int score) {
+    private String buildReason(Spirit ordered, ScoredCandidate sc) {
+        Spirit candidate = sc.spirit();
         List<String> reasons = new ArrayList<>();
+
+        // cross-category acknowledgment comes first, the same way a real
+        // bartender would lead: "I know this is a Rye, but..."
+        if (!sc.sameCategory()) {
+            reasons.add("different style (" + candidate.getCategory()
+                    + "), but the notes line up close enough to be worth a try");
+        }
 
         // distillery connection
         if (candidate.getDistillery() != null &&
@@ -174,11 +307,18 @@ public class RecommendationService {
             reasons.add("aged " + candidate.getAgeStatement() + " years for more depth");
         }
 
-        // price step — frame the upsell
+        // price step — frame as a normal upsell, an aspirational mention if
+        // the jump is too big to be realistic, or a comparison talking
+        // point if it's actually cheaper than what was ordered
         if (candidate.getPricePour() != null && ordered.getPricePour() != null) {
             double diff = candidate.getPricePour().doubleValue()
                     - ordered.getPricePour().doubleValue();
-            if (diff > 0) {
+            if (sc.isComparisonOnly()) {
+                reasons.add("lighter pour at a lower price — good talking point, not an upsell");
+            } else if (sc.isAspirational()) {
+                reasons.add(String.format(
+                        "a big step up at $%.0f more — worth mentioning, not a realistic next pour", diff));
+            } else if (diff > 0) {
                 reasons.add(String.format("only $%.0f more", diff));
             }
         }
@@ -189,4 +329,13 @@ public class RecommendationService {
 
         return String.join(", ", reasons);
     }
+
+    // Small internal holder for a candidate's score plus the context
+    // buildReason and the sort both need (same category? comparison-only?
+    // aspirational?). A record fits well here since this is just an
+    // immutable bundle of values passed around inside this one class,
+    // nothing persisted or sent over the API — Spring Data and Jackson
+    // never see it.
+    private record ScoredCandidate(Spirit spirit, int score, boolean sameCategory,
+                                    boolean isComparisonOnly, boolean isAspirational) {}
 }

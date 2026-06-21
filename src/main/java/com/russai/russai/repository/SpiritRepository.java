@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import java.util.List;
 import java.util.UUID;
 
 // I use this to tell Spring: "This is my middleman for the database."
@@ -38,5 +39,29 @@ public interface SpiritRepository extends JpaRepository<Spirit, UUID> {
            nativeQuery = true)
     void updateEmbedding(@Param("spiritId") UUID spiritId,
                          @Param("embedding") String embedding);
+
+    // Reads back the stored embedding for one spirit as a plain string, e.g.
+    // "[0.1,0.2,0.3]". The vector type itself can't be mapped to a Java field,
+    // so it's cast to text inside Postgres before coming back over JDBC. This
+    // string is what gets reused as the query vector in findSimilarByEmbedding.
+    @Query(value = "SELECT CAST(embedding AS text) FROM spirits WHERE spirit_id = :spiritId",
+           nativeQuery = true)
+    String getEmbeddingAsString(@Param("spiritId") UUID spiritId);
+
+    // Finds the spirits whose flavor embedding is closest to a given query
+    // vector, using pgvector's cosine distance operator (<=>). Smaller
+    // distance = more similar flavor. Excludes the spirit being compared
+    // against itself. Selected columns match the Spirit entity's mapped
+    // fields exactly (embedding is left out since it isn't a Java field).
+    @Query(value = "SELECT spirit_id, name, category, distillery, mash_bill, flavor_tags, " +
+                   "price_pour, proof, age_statement, batch_type, finish " +
+                   "FROM spirits " +
+                   "WHERE spirit_id != :excludeId AND embedding IS NOT NULL " +
+                   "ORDER BY embedding <=> CAST(:queryVector AS vector) " +
+                   "LIMIT :limit",
+           nativeQuery = true)
+    List<Spirit> findSimilarByEmbedding(@Param("excludeId") UUID excludeId,
+                                        @Param("queryVector") String queryVector,
+                                        @Param("limit") int limit);
 
 }
