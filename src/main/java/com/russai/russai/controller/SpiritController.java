@@ -1,3 +1,4 @@
+
 package com.russai.russai.controller;
 
 import com.russai.russai.model.Spirit;
@@ -67,21 +68,13 @@ public class SpiritController {
         return ResponseEntity.notFound().build();
     }
 
-    // ⚠️ TEMPORARY — one-time embedding backfill trigger. Generates and stores
-    // embeddings for all spirits. Safe to re-run (overwrites). DELETE THIS
-    // before final build, same as EmbeddingTestController.
-    @PostMapping("/backfill-embeddings")
-    public ResponseEntity<Map<String, Object>> backfillEmbeddings() {
-        return ResponseEntity.ok(spiritService.backfillEmbeddings());
-    }
-
     // ⚠️ TEMPORARY — diagnostic endpoint to verify the cosine similarity
     // search works end to end before it's wired into RecommendationService.
     // GET /api/spirits/similar-test?name=E.H. Taylor Barrel Proof&limit=5
     // Errors are caught here explicitly (instead of letting the generic
     // GlobalExceptionHandler swallow them into "Something went wrong") so
     // a typo'd name or a missing embedding shows a real, readable reason.
-    // DELETE THIS before final build, same as backfill-embeddings.
+    // DELETE THIS before final build, same as EmbeddingTestController.
     @GetMapping("/similar-test")
     public ResponseEntity<Map<String, Object>> getSimilarSpiritsTest(
             @RequestParam String name,

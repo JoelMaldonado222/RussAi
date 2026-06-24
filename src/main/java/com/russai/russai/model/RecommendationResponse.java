@@ -8,6 +8,16 @@ import java.util.List;
 public class RecommendationResponse {
 
     private String orderedSpirit;
+
+    // The ordered spirit's own facts, exposed alongside the suggestions so
+    // a side-by-side comparison is possible without a second lookup. This
+    // is the backup a bartender actually needs if a guest pushes back —
+    // "the notes are similar? how?" — the real numbers and tags should be
+    // sitting right here, not just summarized into one sentence.
+    private String orderedSpiritFlavorTags;
+    private double orderedSpiritProof;
+    private String orderedSpiritMashBill;
+
     private List<SpiritMatch> recommendations;
 
     // Each individual recommendation — what to suggest and why
@@ -16,6 +26,7 @@ public class RecommendationResponse {
         private String name;
         private String distillery;
         private String flavorTags;
+        private String mashBill;
         private double pricePour;
         private double proof;
         private String reason;

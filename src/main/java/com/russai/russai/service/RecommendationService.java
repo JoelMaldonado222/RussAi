@@ -3,6 +3,7 @@ package com.russai.russai.service;
 import com.russai.russai.model.RecommendationRequest;
 import com.russai.russai.model.RecommendationResponse;
 import com.russai.russai.model.RecommendationResponse.SpiritMatch;
+import com.russai.russai.model.ScriptResponse;
 import com.russai.russai.model.Spirit;
 import com.russai.russai.repository.SpiritRepository;
 import org.springframework.stereotype.Service;
@@ -14,9 +15,12 @@ import java.util.stream.Collectors;
 public class RecommendationService {
 
     private final SpiritRepository spiritRepository;
+    private final ScriptGenerationService scriptGenerationService;
 
-    public RecommendationService(SpiritRepository spiritRepository) {
+    public RecommendationService(SpiritRepository spiritRepository,
+                                  ScriptGenerationService scriptGenerationService) {
         this.spiritRepository = spiritRepository;
+        this.scriptGenerationService = scriptGenerationService;
     }
 
     // ============================================================
@@ -243,6 +247,7 @@ public class RecommendationService {
                     match.setName(s.getName());
                     match.setDistillery(s.getDistillery());
                     match.setFlavorTags(s.getFlavorTags());
+                    match.setMashBill(s.getMashBill());
                     match.setPricePour(s.getPricePour().doubleValue());
                     match.setProof(s.getProof() != null ? s.getProof().doubleValue() : 0);
                     match.setComparisonOnly(sc.isComparisonOnly());
@@ -255,7 +260,82 @@ public class RecommendationService {
         // Step 4 — build and return the response
         RecommendationResponse response = new RecommendationResponse();
         response.setOrderedSpirit(ordered.getName());
+        response.setOrderedSpiritFlavorTags(ordered.getFlavorTags());
+        response.setOrderedSpiritProof(ordered.getProof() != null ? ordered.getProof().doubleValue() : 0);
+        response.setOrderedSpiritMashBill(ordered.getMashBill());
         response.setRecommendations(recommendations);
+        return response;
+    }
+
+    // How many of the top recommendations get a real, generated bartender
+    // line. The rest are passed through as plain data — a bartender will
+    // naturally work those into the conversation on their own if it goes
+    // that far, there's no need to script every option, just the strongest
+    // one or two.
+    private static final int SCRIPTED_PICKS = 2;
+
+    // Same scoring as recommend() above, but the top picks also get a
+    // real, ready-to-say line generated from the facts already computed —
+    // see ScriptGenerationService for how that line gets written.
+    public ScriptResponse recommendWithScript(RecommendationRequest request) {
+
+        // Reuse the exact same, already-tested scoring logic above rather
+        // than duplicating it — this method only adds the script step on
+        // top of whatever recommend() already decided.
+        RecommendationResponse scored = recommend(request);
+
+        ScriptResponse response = new ScriptResponse();
+        response.setOrderedSpirit(scored.getOrderedSpirit());
+        response.setOrderedSpiritFlavorTags(scored.getOrderedSpiritFlavorTags());
+        response.setOrderedSpiritProof(scored.getOrderedSpiritProof());
+        response.setOrderedSpiritMashBill(scored.getOrderedSpiritMashBill());
+
+        List<SpiritMatch> all = scored.getRecommendations();
+        if (all.isEmpty()) {
+            response.setTopPicks(new ArrayList<>());
+            response.setOtherOptions(new ArrayList<>());
+            return response;
+        }
+
+        // A second, separate lookup of the ordered spirit by name — kept
+        // deliberately apart from the lookup inside recommend() above, so
+        // that proven, already-tested method is never touched just to
+        // expose this one extra piece of data the prompt needs (its own
+        // flavor, price, and proof, not just its name).
+        Spirit ordered = spiritRepository.findAll().stream()
+                .filter(s -> s.getName().equalsIgnoreCase(request.getSpiritName()))
+                .findFirst()
+                .orElse(null);
+
+        int scriptedCount = Math.min(SCRIPTED_PICKS, all.size());
+        List<SpiritMatch> topPicks = all.subList(0, scriptedCount);
+        List<SpiritMatch> otherOptions = all.size() > scriptedCount
+                ? new ArrayList<>(all.subList(scriptedCount, all.size()))
+                : new ArrayList<>();
+
+        List<String> scripts = scriptGenerationService.generateScripts(ordered, topPicks);
+
+        List<ScriptResponse.GeneratedScript> generatedPicks = new ArrayList<>();
+        for (int i = 0; i < topPicks.size(); i++) {
+            SpiritMatch m = topPicks.get(i);
+            ScriptResponse.GeneratedScript g = new ScriptResponse.GeneratedScript();
+            g.setName(m.getName());
+            g.setDistillery(m.getDistillery());
+            g.setFlavorTags(m.getFlavorTags());
+            g.setMashBill(m.getMashBill());
+            g.setPricePour(m.getPricePour());
+            g.setProof(m.getProof());
+            g.setComparisonOnly(m.isComparisonOnly());
+            g.setAspirational(m.isAspirational());
+            // Falls back to the existing plain reason text if, for any
+            // reason, fewer scripts came back than picks were sent —
+            // never leaves a pick with no line at all.
+            g.setScript(i < scripts.size() ? scripts.get(i) : m.getReason());
+            generatedPicks.add(g);
+        }
+
+        response.setTopPicks(generatedPicks);
+        response.setOtherOptions(otherOptions);
         return response;
     }
 
