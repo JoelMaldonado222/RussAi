@@ -382,10 +382,16 @@ public class RecommendationService {
             }
         }
 
-        // age adds complexity
-        if (candidate.getAgeStatement() != null) {
-            reasons.add("aged " + candidate.getAgeStatement() + " years for more depth");
-        }
+   // age adds complexity — but only if it's genuinely older than what
+// was ordered. Having any age statement at all isn't the bar; a
+// candidate aged fewer years than the order isn't "more depth," no
+// matter how it's worded. (Found live: Heaven Hill Bottled in Bond,
+// aged 7, was claiming "more depth" against Henry McKenna's 10.)
+if (candidate.getAgeStatement() != null
+        && (ordered.getAgeStatement() == null
+            || candidate.getAgeStatement() > ordered.getAgeStatement())) {
+    reasons.add("aged " + candidate.getAgeStatement() + " years for more depth");
+}
 
         // price step — frame as a normal upsell, an aspirational mention if
         // the jump is too big to be realistic, or a comparison talking
