@@ -67,36 +67,6 @@ public class SpiritController {
         return ResponseEntity.notFound().build();
     }
 
-    // ⚠️ TEMPORARY — production embeddings bootstrap. The original version
-    // of this endpoint had no auth, which was fine on localhost but not on
-    // a real public URL, even briefly — anyone who found it could trigger
-    // real OpenAI charges. This version requires a private header matching
-    // the ADMIN_KEY environment variable, set once in Railway, never
-    // committed anywhere. REMOVE THIS ENTIRELY once the one-time
-    // production backfill is confirmed done — it has no reason to exist
-    // past that single use.
-    @PostMapping("/backfill-embeddings")
-    public ResponseEntity<?> backfillEmbeddings(
-            @RequestHeader(value = "X-Admin-Key", required = false) String providedKey) {
-
-        String realKey = System.getenv("ADMIN_KEY");
-        if (realKey == null || realKey.isBlank()
-                || providedKey == null || !providedKey.equals(realKey)) {
-            // TEMPORARY DEBUG — showing exactly what this running process sees,
-            // since everything checked so far looks correct yet still fails.
-            // Removing this the moment it's actually resolved.
-            return ResponseEntity.status(403).body(Map.of(
-                    "error", "Forbidden",
-                    "debug_realKey", realKey,
-                    "debug_realKeyLength", realKey == null ? -1 : realKey.length(),
-                    "debug_providedKey", providedKey,
-                    "debug_providedKeyLength", providedKey == null ? -1 : providedKey.length()
-            ));
-        }
-
-        return ResponseEntity.ok(spiritService.backfillEmbeddings());
-    }
-
     // ⚠️ TEMPORARY — diagnostic endpoint to verify the cosine similarity
     // search works end to end before it's wired into RecommendationService.
     // GET /api/spirits/similar-test?name=E.H. Taylor Barrel Proof&limit=5
