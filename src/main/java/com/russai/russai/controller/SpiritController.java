@@ -1,4 +1,3 @@
-
 package com.russai.russai.controller;
 
 import com.russai.russai.model.Spirit;
@@ -66,6 +65,27 @@ public class SpiritController {
             return ResponseEntity.noContent().build();
         }
         return ResponseEntity.notFound().build();
+    }
+
+    // ⚠️ TEMPORARY — production embeddings bootstrap. The original version
+    // of this endpoint had no auth, which was fine on localhost but not on
+    // a real public URL, even briefly — anyone who found it could trigger
+    // real OpenAI charges. This version requires a private header matching
+    // the ADMIN_KEY environment variable, set once in Railway, never
+    // committed anywhere. REMOVE THIS ENTIRELY once the one-time
+    // production backfill is confirmed done — it has no reason to exist
+    // past that single use.
+    @PostMapping("/backfill-embeddings")
+    public ResponseEntity<?> backfillEmbeddings(
+            @RequestHeader(value = "X-Admin-Key", required = false) String providedKey) {
+
+        String realKey = System.getenv("ADMIN_KEY");
+        if (realKey == null || realKey.isBlank()
+                || providedKey == null || !providedKey.equals(realKey)) {
+            return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
+        }
+
+        return ResponseEntity.ok(spiritService.backfillEmbeddings());
     }
 
     // ⚠️ TEMPORARY — diagnostic endpoint to verify the cosine similarity
