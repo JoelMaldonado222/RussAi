@@ -82,7 +82,16 @@ public class SpiritController {
         String realKey = System.getenv("ADMIN_KEY");
         if (realKey == null || realKey.isBlank()
                 || providedKey == null || !providedKey.equals(realKey)) {
-            return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
+            // TEMPORARY DEBUG — showing exactly what this running process sees,
+            // since everything checked so far looks correct yet still fails.
+            // Removing this the moment it's actually resolved.
+            return ResponseEntity.status(403).body(Map.of(
+                    "error", "Forbidden",
+                    "debug_realKey", realKey,
+                    "debug_realKeyLength", realKey == null ? -1 : realKey.length(),
+                    "debug_providedKey", providedKey,
+                    "debug_providedKeyLength", providedKey == null ? -1 : providedKey.length()
+            ));
         }
 
         return ResponseEntity.ok(spiritService.backfillEmbeddings());
