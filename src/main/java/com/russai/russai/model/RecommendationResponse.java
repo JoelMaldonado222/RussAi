@@ -18,6 +18,11 @@ public class RecommendationResponse {
     private double orderedSpiritProof;
     private String orderedSpiritMashBill;
 
+    // NEW: the ordered spirit's own pour price, exposed alongside the other
+    // ordered* facts. The UI needs the guest's current bottle price on
+    // screen next to the upsell prices, and it wasn't being returned before.
+    private double orderedSpiritPricePour;
+
     private List<SpiritMatch> recommendations;
 
     // Each individual recommendation — what to suggest and why
@@ -30,6 +35,18 @@ public class RecommendationResponse {
         private double pricePour;
         private double proof;
         private String reason;
+
+        // NEW: batch type (e.g. "Barrel Proof", "Single Barrel", "Bottled
+        // in Bond"). A term guests recognize — shown on every card.
+        private String batchType;
+
+        // NEW: age statement in years. Integer (not int) so "no age
+        // statement" stays null and the UI hides it instead of showing 0.
+        private Integer ageStatement;
+
+        // NEW: barrel finish (e.g. "Port Wine Cask"). Usually "None"; the UI
+        // shows it only when it's something worth mentioning.
+        private String finish;
 
         // True when this spirit is cheaper than what was ordered. The engine
         // still includes it if the flavor is a genuinely close match, but it

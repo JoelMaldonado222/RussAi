@@ -250,6 +250,11 @@ public class RecommendationService {
                     match.setMashBill(s.getMashBill());
                     match.setPricePour(s.getPricePour().doubleValue());
                     match.setProof(s.getProof() != null ? s.getProof().doubleValue() : 0);
+                    // NEW: carry the three card fields straight off the entity.
+                    // ageStatement stays null when the bottle has no age.
+                    match.setBatchType(s.getBatchType());
+                    match.setAgeStatement(s.getAgeStatement());
+                    match.setFinish(s.getFinish());
                     match.setComparisonOnly(sc.isComparisonOnly());
                     match.setAspirational(sc.isAspirational());
                     match.setReason(buildReason(ordered, sc));
@@ -263,6 +268,8 @@ public class RecommendationService {
         response.setOrderedSpiritFlavorTags(ordered.getFlavorTags());
         response.setOrderedSpiritProof(ordered.getProof() != null ? ordered.getProof().doubleValue() : 0);
         response.setOrderedSpiritMashBill(ordered.getMashBill());
+        // NEW: return the ordered spirit's own pour price alongside its other facts.
+        response.setOrderedSpiritPricePour(ordered.getPricePour() != null ? ordered.getPricePour().doubleValue() : 0);
         response.setRecommendations(recommendations);
         return response;
     }
@@ -289,6 +296,9 @@ public class RecommendationService {
         response.setOrderedSpiritFlavorTags(scored.getOrderedSpiritFlavorTags());
         response.setOrderedSpiritProof(scored.getOrderedSpiritProof());
         response.setOrderedSpiritMashBill(scored.getOrderedSpiritMashBill());
+        // NEW: pass the ordered price straight through from the plain
+        // response so both endpoints return the same ordered* facts.
+        response.setOrderedSpiritPricePour(scored.getOrderedSpiritPricePour());
 
         List<SpiritMatch> all = scored.getRecommendations();
         if (all.isEmpty()) {
@@ -325,6 +335,12 @@ public class RecommendationService {
             g.setMashBill(m.getMashBill());
             g.setPricePour(m.getPricePour());
             g.setProof(m.getProof());
+            // NEW: carry the same three card fields through onto the scripted
+            // pick. These now ride on the SpiritMatch, so they copy straight
+            // across — no extra entity lookup needed.
+            g.setBatchType(m.getBatchType());
+            g.setAgeStatement(m.getAgeStatement());
+            g.setFinish(m.getFinish());
             g.setComparisonOnly(m.isComparisonOnly());
             g.setAspirational(m.isAspirational());
             // Falls back to the existing plain reason text if, for any
@@ -382,16 +398,16 @@ public class RecommendationService {
             }
         }
 
-   // age adds complexity — but only if it's genuinely older than what
-// was ordered. Having any age statement at all isn't the bar; a
-// candidate aged fewer years than the order isn't "more depth," no
-// matter how it's worded. (Found live: Heaven Hill Bottled in Bond,
-// aged 7, was claiming "more depth" against Henry McKenna's 10.)
-if (candidate.getAgeStatement() != null
-        && (ordered.getAgeStatement() == null
-            || candidate.getAgeStatement() > ordered.getAgeStatement())) {
-    reasons.add("aged " + candidate.getAgeStatement() + " years for more depth");
-}
+        // age adds complexity — but only if it's genuinely older than what
+        // was ordered. Having any age statement at all isn't the bar; a
+        // candidate aged fewer years than the order isn't "more depth," no
+        // matter how it's worded. (Found live: Heaven Hill Bottled in Bond,
+        // aged 7, was claiming "more depth" against Henry McKenna's 10.)
+        if (candidate.getAgeStatement() != null
+                && (ordered.getAgeStatement() == null
+                    || candidate.getAgeStatement() > ordered.getAgeStatement())) {
+            reasons.add("aged " + candidate.getAgeStatement() + " years for more depth");
+        }
 
         // price step — frame as a normal upsell, an aspirational mention if
         // the jump is too big to be realistic, or a comparison talking

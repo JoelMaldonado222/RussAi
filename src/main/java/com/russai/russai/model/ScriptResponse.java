@@ -21,6 +21,10 @@ public class ScriptResponse {
     private double orderedSpiritProof;
     private String orderedSpiritMashBill;
 
+    // NEW: ordered spirit's own pour price, same as RecommendationResponse,
+    // so the script endpoint's payload matches the plain endpoint's shape.
+    private double orderedSpiritPricePour;
+
     private List<GeneratedScript> topPicks;
     private List<RecommendationResponse.SpiritMatch> otherOptions;
 
@@ -36,6 +40,13 @@ public class ScriptResponse {
         private String mashBill;
         private double pricePour;
         private double proof;
+
+        // NEW: same three card fields as SpiritMatch, so a scripted top
+        // pick carries batch type, age, and finish for the card too.
+        private String batchType;
+        private Integer ageStatement;
+        private String finish;
+
         private boolean comparisonOnly;
         private boolean aspirational;
         private String script;
