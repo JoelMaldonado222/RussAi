@@ -250,7 +250,7 @@ public class RecommendationService {
                     match.setMashBill(s.getMashBill());
                     match.setPricePour(s.getPricePour().doubleValue());
                     match.setProof(s.getProof() != null ? s.getProof().doubleValue() : 0);
-                    // NEW: carry the three card fields straight off the entity.
+                    // carry the three card fields straight off the entity.
                     // ageStatement stays null when the bottle has no age.
                     match.setBatchType(s.getBatchType());
                     match.setAgeStatement(s.getAgeStatement());
@@ -268,8 +268,15 @@ public class RecommendationService {
         response.setOrderedSpiritFlavorTags(ordered.getFlavorTags());
         response.setOrderedSpiritProof(ordered.getProof() != null ? ordered.getProof().doubleValue() : 0);
         response.setOrderedSpiritMashBill(ordered.getMashBill());
-        // NEW: return the ordered spirit's own pour price alongside its other facts.
+        // return the ordered spirit's own pour price alongside its other facts.
         response.setOrderedSpiritPricePour(ordered.getPricePour() != null ? ordered.getPricePour().doubleValue() : 0);
+        // NEW: return the ordered spirit's own batch, age, and finish too, so
+        // the ring-in bottle shows a full card even before any upsell — a
+        // bartender can ring in an unfamiliar pour and instantly see what it
+        // is. ageStatement stays null when the bottle has no age.
+        response.setOrderedSpiritBatchType(ordered.getBatchType());
+        response.setOrderedSpiritAgeStatement(ordered.getAgeStatement());
+        response.setOrderedSpiritFinish(ordered.getFinish());
         response.setRecommendations(recommendations);
         return response;
     }
@@ -296,9 +303,14 @@ public class RecommendationService {
         response.setOrderedSpiritFlavorTags(scored.getOrderedSpiritFlavorTags());
         response.setOrderedSpiritProof(scored.getOrderedSpiritProof());
         response.setOrderedSpiritMashBill(scored.getOrderedSpiritMashBill());
-        // NEW: pass the ordered price straight through from the plain
+        // pass the ordered price straight through from the plain
         // response so both endpoints return the same ordered* facts.
         response.setOrderedSpiritPricePour(scored.getOrderedSpiritPricePour());
+        // NEW: pass the ordered batch, age, and finish through too, so the
+        // script endpoint's ring-in bottle carries the same full card.
+        response.setOrderedSpiritBatchType(scored.getOrderedSpiritBatchType());
+        response.setOrderedSpiritAgeStatement(scored.getOrderedSpiritAgeStatement());
+        response.setOrderedSpiritFinish(scored.getOrderedSpiritFinish());
 
         List<SpiritMatch> all = scored.getRecommendations();
         if (all.isEmpty()) {
@@ -335,7 +347,7 @@ public class RecommendationService {
             g.setMashBill(m.getMashBill());
             g.setPricePour(m.getPricePour());
             g.setProof(m.getProof());
-            // NEW: carry the same three card fields through onto the scripted
+            // carry the same three card fields through onto the scripted
             // pick. These now ride on the SpiritMatch, so they copy straight
             // across — no extra entity lookup needed.
             g.setBatchType(m.getBatchType());
