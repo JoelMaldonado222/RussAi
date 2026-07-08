@@ -24,6 +24,8 @@
             --line: #EAE1CE;
             --line-2: #DBD0B7;
             --radius: 14px;
+            --emerald: #12B074;
+            --emerald-2: #0B7C50;
         }
 
         * {
@@ -53,6 +55,107 @@
             display: flex;
             flex-direction: column;
             position: relative;
+        }
+
+        /* ---- Russ AI login gate ---- */
+        .gate {
+            position: fixed;
+            inset: 0;
+            z-index: 100;
+            background: var(--ink);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+
+        .gate-card {
+            width: 100%;
+            max-width: 330px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            gap: 14px;
+        }
+
+        .gate-logo {
+            width: 96px;
+            height: 96px;
+        }
+
+        .gate-word {
+            font-family: 'Zilla Slab', serif;
+            font-weight: 700;
+            font-size: 17px;
+            letter-spacing: 1.5px;
+            margin-top: 2px;
+        }
+
+        .gate-word .r {
+            color: var(--emerald);
+        }
+
+        .gate-word .a {
+            color: var(--emerald-2);
+        }
+
+        .gate-title {
+            font-family: 'Inter';
+            font-size: 13px;
+            color: var(--cream-dim);
+            margin-top: 8px;
+            letter-spacing: 0.3px;
+        }
+
+        .gate-input {
+            width: 100%;
+            background: var(--panel);
+            border: 1.5px solid var(--line-2);
+            border-radius: 12px;
+            padding: 14px 16px;
+            font-family: 'Inter';
+            font-size: 16px;
+            color: var(--cream);
+            outline: none;
+            text-align: center;
+            letter-spacing: 1px;
+            box-shadow: 0 1px 2px rgba(60, 50, 20, 0.05);
+            transition: border-color .15s;
+        }
+
+        .gate-input:focus {
+            border-color: var(--emerald);
+        }
+
+        .gate-btn {
+            width: 100%;
+            background: var(--emerald);
+            color: #fff;
+            border: none;
+            border-radius: 12px;
+            padding: 14px;
+            font-family: 'Inter';
+            font-weight: 600;
+            font-size: 15px;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            transition: filter .15s;
+        }
+
+        .gate-btn:hover {
+            filter: brightness(1.06);
+        }
+
+        .gate-btn:active {
+            filter: brightness(0.97);
+        }
+
+        .gate-err {
+            min-height: 16px;
+            font-size: 12.5px;
+            color: #B0392E;
+            display: none;
         }
 
         header {
@@ -779,6 +882,27 @@
 </head>
 
 <body>
+
+    <!-- Russ AI login gate -->
+    <div class="gate" id="gate">
+        <div class="gate-card">
+            <svg class="gate-logo" viewBox="0 0 140 140" aria-hidden="true">
+                <rect x="10" y="10" width="120" height="120" rx="30" fill="#0B0A08" />
+                <circle cx="70" cy="70" r="42" fill="none" stroke="#12B074" stroke-width="2.5" />
+                <text x="56" y="88" text-anchor="middle" font-family="Georgia, serif" font-weight="700" font-size="50"
+                    fill="#12B074">R</text>
+                <text x="84" y="88" text-anchor="middle" font-family="Georgia, serif" font-weight="700" font-size="50"
+                    fill="#0B7C50">A</text>
+            </svg>
+            <div class="gate-word"><span class="r">RUSS</span> <span class="a">AI</span></div>
+            <div class="gate-title">Enter your access code</div>
+            <input id="gate-input" class="gate-input" type="password" placeholder="Access code" autocomplete="off"
+                spellcheck="false" inputmode="text">
+            <button id="gate-btn" class="gate-btn">Unlock</button>
+            <div class="gate-err" id="gate-err"></div>
+        </div>
+    </div>
+
     <div class="app">
 
         <header>
@@ -836,15 +960,50 @@
         /* ============================================================
            LIVE ENGINE WIRING
            Same-origin calls (page + API both served by Spring Boot):
-             GET  /api/spirits              -> all 225 bottles (loaded once, cached)
+             GET  /api/spirits              -> all bottles (loaded once, cached)
              POST /api/recommend/script     -> real engine picks for a chosen bottle
+           Every API call carries the device's access code as X-Access-Key,
+           which the backend AccessKeyFilter checks once ACCESS_KEY is set.
            ============================================================ */
 
         const API_SPIRITS = '/api/spirits';
         const API_SCRIPT = '/api/recommend/script';
         const CACHE_KEY = 'russai_catalog_v1';
+        const ACCESS_STORAGE = 'russai_access_key';
 
         let CATALOG = [];   // filled from /api/spirits on load
+
+        /* ---- access code helpers ---- */
+        function getKey() { try { return localStorage.getItem(ACCESS_STORAGE) || ''; } catch (_) { return ''; } }
+        function setKey(k) { try { localStorage.setItem(ACCESS_STORAGE, k); } catch (_) { } }
+        function clearKey() { try { localStorage.removeItem(ACCESS_STORAGE); } catch (_) { } }
+        function authHeaders(extra) {
+            const h = Object.assign({}, extra || {});
+            const k = getKey();
+            if (k) h['X-Access-Key'] = k;
+            return h;
+        }
+
+        /* ---- login gate ---- */
+        function showGate(msg) {
+            document.getElementById('gate').style.display = 'flex';
+            const e = document.getElementById('gate-err');
+            if (msg) { e.textContent = msg; e.style.display = 'block'; }
+            else { e.textContent = ''; e.style.display = 'none'; }
+            const inp = document.getElementById('gate-input');
+            inp.value = '';
+            setTimeout(() => inp.focus(), 50);
+        }
+        function hideGate() { document.getElementById('gate').style.display = 'none'; }
+        function lockOut() { clearKey(); showGate("That code didn't work. Try again."); }
+
+        function submitGate() {
+            const v = document.getElementById('gate-input').value.trim();
+            if (!v) { showGate('Enter your access code.'); return; }
+            setKey(v);
+            hideGate();
+            boot();
+        }
 
         /* ---- helpers to map the real API fields into what the UI uses ---- */
         function splitTags(t) { return (t || "").split(",").map(s => s.trim()).filter(Boolean); }
@@ -1069,6 +1228,7 @@
             `<b>{N} bottles</b> loaded and ready to pour.`
         ];
         let ti = 0;
+        let tipTimer = null;
         const tipEl = document.getElementById('tipline');
         function showTip(html) { tipEl.innerHTML = `<span class="dot"></span><span>${html.replace('{N}', CATALOG.length)}</span>`; }
         function rotateTip() {
@@ -1112,9 +1272,10 @@
             try {
                 const resp = await fetch(API_SCRIPT, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: authHeaders({ 'Content-Type': 'application/json' }),
                     body: JSON.stringify({ spiritName: s.name })
                 });
+                if (resp.status === 401) { lockOut(); return; }
                 if (!resp.ok) throw new Error('HTTP ' + resp.status);
                 const data = await resp.json();
                 renderResult(data);
@@ -1135,36 +1296,47 @@
         clearBtn.addEventListener('click', () => { q.value = ''; clearBtn.style.display = 'none'; dd.classList.remove('open'); document.getElementById('result').style.display = 'none'; document.getElementById('empty').style.display = 'flex'; q.focus(); });
         document.addEventListener('click', e => { if (!e.target.closest('.search-wrap')) dd.classList.remove('open'); });
 
-        /* ---- load the real 225 (with a cached fallback for flaky wifi) ---- */
+        // gate controls
+        document.getElementById('gate-btn').addEventListener('click', submitGate);
+        document.getElementById('gate-input').addEventListener('keydown', e => { if (e.key === 'Enter') submitGate(); });
+
+        /* ---- load the real catalog (with a cached fallback for flaky wifi) ----
+           returns true if the app can proceed, false if it locked out / hard-failed */
         async function loadCatalog() {
             try {
-                const resp = await fetch(API_SPIRITS);
+                const resp = await fetch(API_SPIRITS, { headers: authHeaders() });
+                if (resp.status === 401) { lockOut(); return false; }
                 if (!resp.ok) throw new Error('HTTP ' + resp.status);
                 const raw = await resp.json();
                 CATALOG = raw.map(fromApiSpirit);
                 try { localStorage.setItem(CACHE_KEY, JSON.stringify(CATALOG)); } catch (_) { }
+                return true;
             } catch (e) {
                 try {
                     const cached = localStorage.getItem(CACHE_KEY);
                     if (cached) CATALOG = JSON.parse(cached);
                 } catch (_) { }
-                if (!CATALOG.length) {
-                    document.getElementById('empty').innerHTML =
-                        `<div class="err">Couldn't reach the bottle list.<br>Make sure the app is running, then reload.<br><span style="font-size:11px;color:var(--cream-faint)">${e.message}</span></div>`;
-                }
+                if (CATALOG.length) return true;
+                document.getElementById('empty').innerHTML =
+                    `<div class="err">Couldn't reach the bottle list.<br>Make sure the app is running, then reload.<br><span style="font-size:11px;color:var(--cream-faint)">${e.message}</span></div>`;
+                return false;
             }
         }
 
-        async function init() {
-            await loadCatalog();
+        async function boot() {
+            const ok = await loadCatalog();
+            if (!ok) return;
             buildCats();
             renderPopular();
             showTip(TIPS[0]); ti = 1;
-            setInterval(rotateTip, 12000);
+            if (!tipTimer) tipTimer = setInterval(rotateTip, 12000);
             q.focus();
         }
 
-        window.addEventListener('load', init);
+        window.addEventListener('load', () => {
+            if (getKey()) { hideGate(); boot(); }
+            else { showGate(); }
+        });
     </script>
 </body>
 
